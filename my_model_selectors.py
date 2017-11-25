@@ -77,7 +77,31 @@ class SelectorBIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        best_score = float('inf')
+        best_model = None
+
+        for n_states in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                all_scores = []
+                model = self.base_model(n_states)
+                log_l = model.score(self.X, self.lengths)
+                n_features = self.X.shape[1]
+                p = (n_states * n_states) + (2 * n_states * n_features) - 1
+                log_n = np.log(self.X.shape[0])
+
+                bic = -2 * log_l + p * log_n
+
+                if bic < best_score:
+                    best_score = bic
+                    best_model = model
+
+            except Exception as e:
+                pass
+
+        if best_model is None:
+            best_model = self.base_model(self.n_constant)
+
+        return best_model
 
 
 class SelectorDIC(ModelSelector):
@@ -94,7 +118,39 @@ class SelectorDIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        best_score = float('-inf')
+        best_model = None
+
+        for n_states in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                logPSum = 0
+                m = 0
+
+                model = self.base_model(n_states)
+
+                for word in self.words:
+                    if word != self.this_word:
+                        x, len = self.hwords[word]
+                        m += 1
+                        logPSum += model.score(x, len)
+
+                try:
+                    log_l = model.score(self.X, self.lengths)
+                    dic = log_l - (1 / (m - 1)) * logPSum
+                except Exception as e:
+                    dic = float('-inf')
+
+                if dic > best_score:
+                    best_score = dic
+                    best_model = model
+
+            except Exception as e:
+                pass
+
+        if best_model is None:
+            best_model = self.base_model(self.n_constant)
+
+        return best_model
 
 
 class SelectorCV(ModelSelector):
@@ -106,4 +162,37 @@ class SelectorCV(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection using CV
-        raise NotImplementedError
+        # set up initial values
+        best_score = float('-inf')
+        best_model = None
+        n_splits = min(len(self.sequences), 3)
+
+        for n_states in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                all_scores = []
+                model = self.base_model(n_states)
+                folds = KFold(n_splits=n_splits, random_state=self.random_state)
+
+                for cv_train_idx, cv_test_idx in folds.split(self.sequences):
+                    x_train, x_train_length = combine_sequences(cv_train_idx, self.sequences)
+                    x_test, x_test_length = combine_sequences(cv_test_idx, self.sequences)
+                    model = model.fit(x_train, x_train_length)
+                    log_l = model.score(x_test, x_test_length)
+                    all_scores.append(log_l)
+
+                avg = float('-inf')
+                if len(all_scores) > 0:
+                    avg = np.average(all_scores)
+
+                if avg > best_score:
+                    best_score = avg
+                    best_model = model
+
+            except Exception as e:
+                #print(e)
+                break
+
+        if best_model is None:
+            best_model = self.base_model(self.n_constant)
+
+        return best_model
